@@ -1,0 +1,334 @@
+---
+title: "EAS_MDTT"
+author: "Andryan Situmorang"
+date: "2023-06-10"
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r}
+#PREPROCESSING DATA
+library(readxl)
+library(NLP)
+library(tm)
+library(readr)
+library(readxl)
+library(rlang)
+library(tokenizers)
+library(usethis)
+library(devtools)
+```
+
+```{r}
+#open data
+data<-read.csv("D:/Data STATBIS ITS/Sem 6/Metode Data Tidak Terstruktur/EAS/translatedata.csv")
+head(data)
+```
+
+
+```{r}
+#mengubah data menjadi corpus/kumpulan
+corpusdata<-Corpus(VectorSource(data$En))
+inspect(corpusdata[1:10])
+```
+
+```{r}
+#mengubah huruf menjadi kecil
+casefolding<-tm_map(corpusdata, content_transformer(tolower))
+inspect(casefolding[1:10])
+
+#menghapus url
+removeURL<-function(x) gsub("http[^[:space:]]*","",x)
+data_URL<-tm_map(casefolding,content_transformer(removeURL))
+inspect(data_URL[1:10])
+
+#menghapus mention
+removemention<-function(x) gsub("@\\s+","",x)
+data_mention<-tm_map(data_URL,removemention)
+inspect(data_mention[1:10])
+
+#menghapus hastag
+removehashtag<-function(x) gsub("#\\s+","",x)
+data_hashtag<-tm_map(data_mention,removehashtag)
+inspect(data_hashtag[1:10])
+
+#menghapus tanda baca
+data_punctuation<-tm_map(data_hashtag,content_transformer(removePunctuation))
+inspect(data_punctuation[1:10])
+
+#menghapus angka
+data_nonumber<-tm_map(data_punctuation,content_transformer(removeNumbers))
+inspect(data_nonumber[1:10])
+
+#menghapus emoticon
+removeemot<-function(x) gsub("[^\x01-\x7F]","",x)
+data_emot<-tm_map(data_nonumber, content_transformer(removeemot))
+inspect(data_emot[1:10])
+```
+
+```{r}
+#import data stopword
+library(readxl)
+dictionary<-read_excel("D:/Data STATBIS ITS/Sem 6/Metode Data Tidak Terstruktur/praktikum2/dictionary.xlsx")
+
+#remove stopword
+removestopword<-tm_map(data_emot,removeWords,dictionary$dictionary)
+inspect(removestopword[1:10])
+
+#remove spasi berlebihan
+removespace<-tm_map(removestopword,content_transformer(stripWhitespace))
+inspect(removespace[1:10])
+```
+
+```{r}
+#menyimpan clean data
+cleandata<-data.frame(text=unlist(sapply(removespace,'[')), tringSASFactors=FALSE)
+write.csv(cleandata,file="cleandata_eas.csv")
+
+install_github("nurandi/katadasaR")
+library(katadasaR)
+katadasaR::katadasar
+
+#stemming
+stemming<-function(x){
+  paste(lapply(x,katadasar),collapse=" ")}
+tweets<-lapply(tokenize_words(cleandata$text[]), stemming)
+
+#WORDCLOUD
+library(RColorBrewer)
+library(wordcloud)
+wordcloud(cleandata$text, max.words = 100,colors=brewer.pal(8,"Dark2"))
+```
+
+```{r}
+file <- "cleandata_eas.csv"
+data <- read.csv(file)
+
+output_file <- "D:/Data STATBIS ITS/Sem 6/Metode Data Tidak Terstruktur/EAS/cleandata_eas_output.csv"
+write.csv(data, file = output_file, row.names = FALSE)
+```
+
+```{r}
+#ANALISIS SENTIMEN DAN WORDCLOUDNYA
+library(NLP)
+library(tokenizers)
+library(tidyverse)
+library(tidytext)
+library(hcandersenr)
+library(stringr)
+library(dplyr)
+library(devtools)
+library(tm)
+library(readxl)
+library(textdata)
+library(janeaustenr)
+library(ggplot2)
+library(reshape2)
+```
+
+```{r}
+tokenize_words(cleandata$text[1:20])
+tft_tokeen_ngram2 <- tokenize_ngrams(x = cleandata$text[1:20],
+                                     lowercase = TRUE,
+                                     n = 3L)
+tft_tokeen_ngram2
+
+sample_vector2 <- c(cleandata$text[1:1572])
+sample_tibble2 <- tibble(text = sample_vector2)
+sample_tibble2
+
+token_sentence2 <- sample_tibble2 %>%
+  unnest_tokens(word, text, token = "sentences")
+token_sentence2
+
+token_words2 <- sample_tibble2 %>%
+  unnest_tokens(word, text, token = "words")
+token_words2
+
+token_ngram2 <- sample_tibble2 %>%
+  unnest_tokens(word, text, token = "ngrams", n =2)
+token_ngram2
+```
+
+```{r}
+#Stemming
+library(SnowballC)
+SnowballC::wordStem
+word <- token_sentence2$word
+sapply(word, wordStem, language = "english")
+stemmed_words <- sapply(word, wordStem, language = "english")
+data.frame(word,stemmed_words)
+```
+
+```{r}
+#analisis sentimen
+library(janeaustenr)
+library(dplyr)
+library(stringr)
+library(tidytext)
+library(tidyverse)
+teks <- c(data.frame(word, stemmed_words))
+teks
+
+get_sentiments("afinn")
+get_sentiments("bing")
+get_sentiments("nrc")
+
+tidy_books <- sample_tibble2 %>%
+  mutate(
+    linenumber = row_number(),
+    chapter = cumsum(str_detect(text, 
+                                regex("^chapter [\\divxlc]", 
+                                      ignore_case = TRUE)))) %>%
+  ungroup() %>%
+  unnest_tokens(word, text, token = "words")
+
+nrc_joy <- get_sentiments("nrc") %>% 
+  filter(sentiment == "joy")
+
+tidy_books %>%
+  inner_join(nrc_joy) %>%
+  count(word, sort = TRUE)
+
+jane_austen_sentiment <- tidy_books %>%
+  inner_join(get_sentiments("bing")) %>%
+  count(index = linenumber %/% 80, sentiment) %>%
+  pivot_wider(names_from = sentiment, values_from = n, values_fill = 0) %>% 
+  mutate(sentiment = positive - negative)
+
+ggplot(jane_austen_sentiment, aes(index, sentiment, fill = " ")) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~" ", ncol = 2, scales = "free_x")
+
+afinn <- tidy_books %>% 
+  inner_join(get_sentiments("afinn")) %>% 
+  group_by(index = linenumber %/% 80) %>% 
+  summarise(sentiment = sum(value)) %>% 
+  mutate(method = "AFINN")
+
+bing_and_nrc <- bind_rows(
+  tidy_books %>% 
+    inner_join(get_sentiments("bing")) %>%
+    mutate(method = "Bing et al."),
+  tidy_books %>% 
+    inner_join(get_sentiments("nrc") %>% 
+                 filter(sentiment %in% c("positive", 
+                                         "negative"))
+    ) %>%
+    mutate(method = "NRC")) %>%
+  count(method, index = linenumber %/% 80, sentiment) %>%
+  pivot_wider(names_from = sentiment,
+              values_from = n,
+              values_fill = 0) %>% 
+  mutate(sentiment = positive - negative)
+
+bind_rows(afinn, 
+          bing_and_nrc) %>%
+  ggplot(aes(index, sentiment, fill = method)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~method, ncol = 1, scales = "free_y")
+
+get_sentiments("nrc") %>% 
+  filter(sentiment %in% c("positive", "negative")) %>% 
+  count(sentiment)
+
+get_sentiments("bing") %>% 
+  count(sentiment)
+
+bing_word_counts <- tidy_books %>%
+  inner_join(get_sentiments("bing")) %>%
+  count(word, sentiment, sort = TRUE) %>%
+  ungroup()
+bing_word_counts
+
+bing_word_counts %>%
+  group_by(sentiment) %>%
+  slice_max(n, n = 10) %>% 
+  ungroup() %>%
+  mutate(word = reorder(word, n)) %>%
+  ggplot(aes(n, word, fill = sentiment)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~sentiment, scales = "free_y") +
+  labs(x = "WM : Arif 039",
+       y = NULL)
+
+custom_stop_words <- bind_rows(tibble(word = c("miss"),  
+                                      lexicon = c("custom")), 
+                               stop_words)
+custom_stop_words
+
+library(RColorBrewer)
+library(wordcloud)
+
+tidy_books %>%
+  anti_join(stop_words) %>%
+  count(word) %>%
+  with(wordcloud(word, n, max.words = 100))
+
+library(reshape2)
+tidy_books %>%
+  inner_join(get_sentiments("bing")) %>%
+  count(word, sentiment, sort = TRUE) %>%
+  acast(word ~ sentiment, value.var = "n", fill = 0) %>%
+  comparison.cloud(colors = c("red", "blue"),
+                   max.words=100)
+```
+
+```{r}
+#LABELLING DATA
+library(sentimentr)
+library(data.table)
+library(plyr)
+
+#sentimen tiap baris
+sentiment(cleandata$text)
+#sentimen tiap review
+sentiments<-sentiment_by(cleandata$text)
+
+#convert sentimen ke data frame
+sentimen_df<-setDF(sentiments)
+#fungsi buat sentimen skor
+get_sentiment_class<-function(sentiment_score){
+  
+  sentiment_class="Positive"
+  
+  if(sentiment_score< -0.3){
+    sentiment_class="Negative"
+  }
+  
+  else if(sentiment_score< 0.3){
+    sentiment_class="Neutral"
+  }
+  
+  sentiment_class
+}
+
+#buat sentimen class atribute
+labeldata<-
+  sapply(sentimen_df$ave_sentiment,get_sentiment_class)
+labeldata
+
+#save data
+write.csv(labeldata, file="labeldata.csv")
+```
+
+```{r}
+library(ggplot2)
+library(lattice)
+library(caret)
+library(e1071)
+```
+
+```{r}
+#KLASIFIKASI SENTIMEN NAIVE BAYES
+sentimen_data<-read_excel("sentimen.xlsx")
+sampel<-sample(1:nrow(sentimen_data), 0.7*nrow(sentimen_data))
+data_training<-data.frame(sentimen_data)[sampel,]
+data_testing<-data.frame(sentimen_data)[-sampel,]
+
+model<-naiveBayes(kelompok~.,data = data_training)
+prediksi<-predict(model,data_testing)
+hasil<-confusionMatrix(table(prediksi,data_testing$kelompok))
+hasil
+```
